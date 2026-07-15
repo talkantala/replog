@@ -1,0 +1,1385 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<!--
+  HARD RULES. DO NOT RELAX.
+  - No network requests. Ever. No CDN, no fonts, no analytics, no telemetry, no error reporting.
+  - No third-party scripts of any kind.
+  - No accounts, no sync, no cloud.
+  - The passphrase is never written to disk in any form. No hash, no hint, no recovery.
+  - CSP below blocks all network connections. 'unsafe-inline' is required because this is a
+    single self-contained file (inline script/style). connect-src 'none' + no external refs
+    means the app cannot phone home even if code is later added carelessly.
+-->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; manifest-src data: blob:; connect-src 'none'; worker-src blob:">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Rep Log">
+<meta name="theme-color" content="#0B0D0F">
+<link rel="apple-touch-icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAALQAAAC0CAIAAACyr5FlAAAChUlEQVR42u3dMU4CURSGUSFUEkJNY2Nl7SKs3YlLcSfWLMLaiobGHVhbaDkShDsz9717vtZEg578w/AmcbHebG+koZZ+BYJDcAgOwSE4BIfgEByCQ3BIcAgOwSE4BIfgEByCQ3AIDgkOwSE4BIfgEByCQ3AIDsEhwSE4BIfgEByCQ3AIDsEhOASHBIfgEByCQ3AIDsGh1ltN/yMPH+9/fen+4dF3sxxyWREciurz6Q4ODbD4kZHHBxwGA470g5HQChxJByODDzgSDUY2Hyt/p4m7fXl2K6sAGfOOh+XIOxi7/dFlBYuMMuAwGHDMdZvasgw4xpTRMgs4sIAjMYvMMuAwGHAkY/H1+uYxQTKGZbTy6iwHFnDM/cazORlwGAw4sIBjpC4+OTs0/sLhiJeR/wMMOLC4Np9zkGE5sIDj2vsRMuAIuVPtmAUcWMARyqKOjNI4DAYcBgOOMWX8HpG08HgOHJOzqNoKCzLq4jAYcGARX7cHb45ILAcWcIzGgowSOAwGHFjAcf79CBlwhNypYtE/DidncBgMOLCAw3UEjhQyyj6BUQiHk7N5W5KhlpYDCzjC3niS0T+Oy45ITvxjX/WAw8kZHDEsyCiBw2DAgUWrLclQiuVwcgZHDAsySuAwGHBgAYfrCBwTy/AERv84nJzBET0Y6hgHFl0W8wnpf99IkuFWdpiRJzBqLcc547HbH92pFsVx2gcW1XEMIjAYcBgMOM4GYTDgMBhwqGSL9WbrtyDLITgEh+AQHIJDcAgOwSE4JDgEh+AQHIJDcAgOwSE4BIcEh+AQHIJDcAgOwSE4BIfgEBwSHIJDcAgOwSE4BIfgEByCQ4JDcAgOwSE4BIfgUNN9A6NT/uAKocA7AAAAAElFTkSuQmCC">
+<title>Rep Log</title>
+<style>
+  :root{
+    --bg:#0B0D0F;
+    --panel:#14171B;
+    --panel2:#1B1F24;
+    --line:#262B31;
+    --chalk:#E8E4DC;
+    --dim:#8A9098;
+    --faint:#5A6068;
+    --ember:#F2542D;   /* A: assert */
+    --tide:#2FB8A6;    /* V: vulnerability */
+    --danger:#D64545;
+    --sat:env(safe-area-inset-top,0px);
+    --sab:env(safe-area-inset-bottom,0px);
+  }
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%;overscroll-behavior:none}
+  body{
+    background:var(--bg);color:var(--chalk);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    font-size:17px;line-height:1.35;
+    -webkit-font-smoothing:antialiased;
+    user-select:none;-webkit-user-select:none;
+  }
+  .num{font-family:ui-monospace,"SF Mono",SFMono-Regular,Menlo,monospace;font-variant-numeric:tabular-nums}
+  button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;touch-action:manipulation}
+  input{font:inherit}
+  button:focus-visible,input:focus-visible,a:focus-visible{outline:2px solid var(--tide);outline-offset:2px}
+
+  /* ---------- shell ---------- */
+  #app{display:none;height:100%;flex-direction:column}
+  .screen{flex:1;overflow-y:auto;padding:calc(var(--sat) + 14px) 16px 16px;display:none}
+  .screen.active{display:block}
+  #tabbar{
+    display:flex;border-top:1px solid var(--line);background:var(--panel);
+    padding-bottom:var(--sab);flex-shrink:0;
+  }
+  #tabbar button{
+    flex:1;padding:13px 0 11px;font-size:11px;letter-spacing:.12em;font-weight:700;
+    color:var(--faint);
+  }
+  #tabbar button.on{color:var(--chalk)}
+  #tabbar button.on .bar{background:var(--ember)}
+  #tabbar .bar{display:block;width:22px;height:3px;border-radius:2px;margin:6px auto 0;background:transparent}
+
+  /* ---------- banners / toast ---------- */
+  .banner{
+    background:var(--panel2);border:1px solid var(--line);border-left:3px solid var(--ember);
+    padding:10px 12px;font-size:14px;color:var(--chalk);margin-bottom:12px;border-radius:8px;
+    display:flex;align-items:center;gap:10px;justify-content:space-between;
+  }
+  .banner button{color:var(--ember);font-weight:700;font-size:14px;white-space:nowrap;padding:6px 8px}
+  #toast{
+    position:fixed;left:50%;bottom:calc(var(--sab) + 78px);transform:translateX(-50%) translateY(8px);
+    background:var(--chalk);color:var(--bg);padding:10px 18px;border-radius:10px;
+    font-size:15px;font-weight:600;opacity:0;pointer-events:none;transition:opacity .18s,transform .18s;
+    max-width:88vw;text-align:center;z-index:60;
+  }
+  #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+  /* ---------- privacy blur ---------- */
+  #shield{
+    position:fixed;inset:0;background:var(--bg);z-index:100;display:none;
+    align-items:center;justify-content:center;
+  }
+  #shield .num{font-size:40px;color:var(--faint);font-weight:800}
+
+  /* ---------- gate screens (setup / unlock) ---------- */
+  .gate{
+    display:none;height:100%;flex-direction:column;justify-content:flex-end;
+    padding:calc(var(--sat) + 24px) 22px calc(var(--sab) + 28px);
+  }
+  .gate.active{display:flex}
+  .gate h1{font-size:15px;letter-spacing:.22em;font-weight:800;color:var(--dim);margin-bottom:auto}
+  .gate .lines{font-size:16px;color:var(--chalk);margin-bottom:22px}
+  .gate .lines div{margin-bottom:4px}
+  .gate .lines .ex{color:var(--dim)}
+  .gate input[type=password],.gate input[type=text]{
+    width:100%;background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    color:var(--chalk);padding:16px;font-size:18px;margin-bottom:12px;
+  }
+  .gate label.chk{
+    display:flex;gap:12px;align-items:flex-start;font-size:15px;color:var(--chalk);
+    margin:6px 0 18px;
+  }
+  .gate label.chk input{width:24px;height:24px;flex-shrink:0;accent-color:var(--ember)}
+  .cta{
+    width:100%;padding:18px;border-radius:14px;font-size:18px;font-weight:800;
+    background:var(--ember);color:#fff;letter-spacing:.03em;
+  }
+  .cta:disabled{background:var(--panel2);color:var(--faint)}
+  .gate .err{color:var(--danger);font-size:15px;min-height:22px;margin-bottom:8px;font-weight:600}
+  .gate .erase{
+    margin-top:22px;text-align:center;font-size:14px;color:var(--danger);
+    text-decoration:underline;background:none;width:100%;
+  }
+
+  /* ---------- LOG screen ---------- */
+  #scr-log{display:none;flex-direction:column}
+  #scr-log.active{display:flex}
+  #total{
+    text-align:center;font-size:112px;font-weight:800;letter-spacing:-.02em;
+    margin-top:4vh;line-height:1;
+  }
+  #total .lbl{display:block;font-size:12px;letter-spacing:.28em;color:var(--faint);font-weight:700;margin-top:8px}
+  #logbtns{margin-top:auto;display:flex;gap:12px;padding-bottom:8px}
+  .bigbtn{
+    flex:1;border-radius:20px;padding:0 8px;height:min(38vh,300px);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;
+    border:1px solid var(--line);
+  }
+  .bigbtn .letter{font-size:72px;font-weight:800;line-height:1}
+  .bigbtn .sub{font-size:14px;color:var(--dim);text-align:center;line-height:1.3;padding:0 6px}
+  #btnA{background:linear-gradient(180deg,#231512,#1A100D)}
+  #btnA .letter{color:var(--ember)}
+  #btnV{background:linear-gradient(180deg,#0F1E1C,#0C1715)}
+  #btnV .letter{color:var(--tide)}
+  .bigbtn:active{transform:scale(.98)}
+
+  /* ---------- modal ---------- */
+  #modal{
+    position:fixed;inset:0;background:rgba(6,8,10,.82);z-index:50;display:none;
+    align-items:flex-end;
+  }
+  #modal.open{display:flex}
+  #sheet{
+    background:var(--panel);width:100%;border-radius:22px 22px 0 0;
+    padding:22px 18px calc(var(--sab) + 22px);border-top:1px solid var(--line);
+  }
+  #sheet h2{font-size:22px;font-weight:800;margin-bottom:18px;text-align:center}
+  .scale{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:6px}
+  .scale button{
+    background:var(--panel2);border:1px solid var(--line);border-radius:14px;
+    font-size:24px;font-weight:800;padding:16px 0;
+  }
+  .scale button.sel{background:var(--chalk);color:var(--bg);border-color:var(--chalk)}
+  .outcomes{display:flex;gap:10px;margin-top:18px}
+  .outcomes button{
+    flex:1;padding:18px 4px;border-radius:14px;font-size:15px;font-weight:800;letter-spacing:.05em;
+    border:1px solid var(--line);background:var(--panel2);
+  }
+  .outcomes button:disabled{color:var(--faint)}
+  .outcomes .held{color:var(--tide)}
+  .outcomes .folded{color:var(--ember)}
+  #feelLink{
+    display:block;margin:16px auto 0;font-size:14px;color:var(--dim);text-decoration:underline;
+  }
+  #modalCancel{display:block;margin:14px auto 0;font-size:14px;color:var(--faint)}
+
+  /* ---------- feeling picker ---------- */
+  .famgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .famgrid button{
+    padding:26px 6px;border-radius:16px;font-size:19px;font-weight:800;letter-spacing:.06em;
+    background:var(--panel2);border:1px solid var(--line);
+  }
+  .wordgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .wordgrid button{
+    padding:15px 6px;border-radius:12px;font-size:16px;font-weight:600;
+    background:var(--panel2);border:1px solid var(--line);
+  }
+  .pickhint{font-size:14px;color:var(--dim);text-align:center;margin-bottom:16px}
+  #feelWordBig{
+    text-align:center;font-size:44px;font-weight:800;margin:16vh 0 10px;display:none;
+  }
+
+  /* ---------- ladder ---------- */
+  .tier{margin-bottom:26px}
+  .tier h3{
+    font-size:13px;letter-spacing:.18em;font-weight:800;color:var(--dim);margin-bottom:8px;
+  }
+  .tier .thead{font-size:14px;color:var(--dim);margin-bottom:10px;line-height:1.4}
+  .item{
+    display:flex;align-items:flex-start;gap:12px;padding:13px 12px;border-radius:12px;
+    background:var(--panel);border:1px solid var(--line);margin-bottom:8px;width:100%;text-align:left;
+    font-size:16px;line-height:1.35;
+  }
+  .item .box{
+    width:24px;height:24px;border-radius:7px;border:2px solid var(--faint);flex-shrink:0;
+    display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:800;color:var(--bg);
+    margin-top:1px;
+  }
+  .item.done{opacity:.55}
+  .item.done .box{background:var(--tide);border-color:var(--tide)}
+  .item .star{color:var(--ember);font-weight:800}
+  .starnote{font-size:13px;color:var(--dim);margin:-2px 0 10px 48px;line-height:1.35}
+  .tfoot{font-size:13px;color:var(--dim);margin-top:2px;line-height:1.4}
+  .tier.locked .item{opacity:.28;pointer-events:none}
+  .tier.locked .thead{display:none}
+  .locknote{
+    font-size:15px;color:var(--dim);background:var(--panel);border:1px dashed var(--line);
+    border-radius:12px;padding:12px;margin-bottom:10px;font-weight:600;
+  }
+  .ladderhead{font-size:14px;color:var(--dim);margin-bottom:20px;line-height:1.45}
+  .sched{margin-top:8px;border-top:1px solid var(--line);padding-top:18px}
+  .sched h3{font-size:13px;letter-spacing:.18em;color:var(--dim);margin-bottom:10px}
+  .sched div{font-size:15px;margin-bottom:7px;color:var(--chalk)}
+  .sched .close{color:var(--dim);font-size:14px;margin-top:12px;line-height:1.4}
+  .failbox{
+    border:1px solid var(--ember);border-radius:12px;padding:14px;margin-top:22px;
+    font-size:15px;line-height:1.45;
+  }
+
+  /* ---------- toolkit ---------- */
+  details{border:1px solid var(--line);border-radius:12px;background:var(--panel);margin-bottom:10px}
+  summary{
+    list-style:none;padding:16px 14px;font-size:16px;font-weight:800;letter-spacing:.04em;
+    display:flex;justify-content:space-between;align-items:center;
+  }
+  summary::-webkit-details-marker{display:none}
+  summary::after{content:"+";color:var(--faint);font-size:20px;font-weight:400}
+  details[open] summary::after{content:"–"}
+  .dbody{padding:0 14px 14px}
+  .dbody ul{list-style:none}
+  .dbody li{
+    padding:8px 0;border-top:1px solid var(--line);font-size:15px;line-height:1.4;
+  }
+  .dbody li:first-child{border-top:0}
+  .dm{font-size:15px;line-height:1.5}
+  .dm .k{color:var(--tide);font-weight:800}
+  table.ff{width:100%;border-collapse:collapse;font-size:14px}
+  table.ff td{padding:8px 6px;border-top:1px solid var(--line);vertical-align:top;line-height:1.35}
+  table.ff td:first-child{color:var(--dim);width:44%}
+  .ffnote{font-size:13px;color:var(--dim);margin-top:10px;line-height:1.4}
+  .toolfoot{margin-top:22px;display:flex;gap:10px}
+  .toolfoot button{
+    flex:1;padding:15px;border-radius:12px;border:1px solid var(--line);background:var(--panel);
+    font-size:16px;font-weight:700;
+  }
+  .bnote{font-size:13px;color:var(--dim);margin-top:10px;text-align:center;line-height:1.4}
+  #aboutLink{display:block;margin:18px auto 0;font-size:13px;color:var(--faint);text-decoration:underline}
+
+  /* ---------- review ---------- */
+  #lockedBig{
+    text-align:center;margin-top:8vh;font-size:26px;font-weight:800;line-height:1.5;
+  }
+  #lockedBig .n{color:var(--ember)}
+  .rev-total{text-align:center;font-size:84px;font-weight:800;margin:4vh 0 6px;line-height:1}
+  .rev-lbl{text-align:center;font-size:12px;letter-spacing:.26em;color:var(--faint);font-weight:700;margin-bottom:26px}
+  .revline{
+    background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:16px 14px;font-size:16px;line-height:1.5;margin-bottom:12px;position:relative;
+  }
+  .revline .num{font-weight:800}
+  .revline .add{color:var(--ember);font-weight:700;display:block;margin-top:6px}
+  .revline.blurred .inner{filter:blur(9px)}
+  .revline .veil{
+    position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    font-size:14px;font-weight:700;color:var(--dim);letter-spacing:.08em;
+  }
+  .revclose{text-align:center;color:var(--dim);font-size:15px;margin-top:22px;font-weight:600}
+
+  /* ---------- about ---------- */
+  #scr-about .lines{margin-top:8vh;font-size:16px;line-height:1.7}
+  #scr-about .lines div{margin-bottom:10px}
+  #aboutBack{margin-top:34px}
+
+  /* ---------- small modal (erase / restore pass) ---------- */
+  .mini{
+    position:fixed;inset:0;background:rgba(6,8,10,.86);z-index:70;display:none;
+    align-items:center;justify-content:center;padding:22px;
+  }
+  .mini.open{display:flex}
+  .minibox{
+    background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:20px;width:100%;max-width:360px;
+  }
+  .minibox h3{font-size:17px;font-weight:800;margin-bottom:12px}
+  .minibox p{font-size:14px;color:var(--dim);margin-bottom:12px;line-height:1.4}
+  .minibox input{
+    width:100%;background:var(--panel2);border:1px solid var(--line);border-radius:10px;
+    color:var(--chalk);padding:13px;font-size:17px;margin-bottom:12px;
+  }
+  .minibox .row{display:flex;gap:10px}
+  .minibox .row button{flex:1;padding:13px;border-radius:10px;font-weight:800;font-size:15px}
+  .minibox .go{background:var(--danger);color:#fff}
+  .minibox .go.tide{background:var(--tide);color:var(--bg)}
+  .minibox .go:disabled{background:var(--panel2);color:var(--faint)}
+  .minibox .stay{border:1px solid var(--line)}
+  .minibox .err{color:var(--danger);font-size:14px;min-height:20px;margin-bottom:6px;font-weight:600}
+
+  .dotstrip{display:flex;gap:6px;justify-content:center;margin-top:16px}
+  .dot{width:10px;height:10px;border-radius:50%;background:var(--panel2);border:1px solid var(--line)}
+  .dot.on{background:var(--tide);border-color:var(--tide)}
+  .lastrep{text-align:center;font-size:11px;color:var(--faint);margin-top:8px;letter-spacing:.14em;font-weight:700}
+  .usage{margin-bottom:22px}
+  .usage h3{font-size:13px;letter-spacing:.18em;color:var(--dim);margin-bottom:10px;font-weight:800}
+  .urow{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+  .urow .wl{width:52px;color:var(--faint);font-size:12px;flex-shrink:0}
+  .urow .ub{height:12px;background:var(--tide);border-radius:3px}
+  .urow .uc{color:var(--dim);font-size:13px}
+  .ufoot{font-size:12px;color:var(--faint);margin-top:8px;line-height:1.4}
+
+  .hrow{display:flex;gap:8px;align-items:baseline;padding:8px 0;border-top:1px solid var(--line)}
+  .hrow .hd{width:46px;color:var(--faint);flex-shrink:0;font-size:12px}
+  .hrow .ht{font-weight:800;width:14px;flex-shrink:0;font-size:13px}
+  .hrow .ht.A{color:var(--ember)}
+  .hrow .ht.V{color:var(--tide)}
+  .hrow .hl{flex:1;color:var(--chalk);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}
+  .hrow .ho{color:var(--dim);font-weight:700;flex-shrink:0;font-size:12px}
+  .hrow .ho.FOLDED{color:var(--ember)}
+  .hrow .ho.HELD{color:var(--tide)}
+
+  @media (prefers-reduced-motion:reduce){
+    *{transition:none !important;animation:none !important}
+  }
+</style>
+</head>
+<body>
+
+<!-- ============ SETUP ============ -->
+<div class="gate" id="gate-setup">
+  <h1>REP LOG</h1>
+  <div class="lines">
+    <div>Pick four unrelated words. Write them on paper.</div>
+    <div>There is no reset. Lose the passphrase, lose the reps.</div>
+    <div class="ex">Example: granite otter tarpon lantern</div>
+  </div>
+  <div class="err" id="setupErr"></div>
+  <input type="password" id="setupPass" placeholder="passphrase, 16 characters minimum" autocomplete="new-password">
+  <input type="password" id="setupPass2" placeholder="type it again" autocomplete="new-password">
+  <label class="chk"><input type="checkbox" id="setupChk"> I have written it down somewhere physical.</label>
+  <button class="cta" id="setupGo" disabled>Start counting</button>
+</div>
+
+<!-- ============ UNLOCK ============ -->
+<div class="gate" id="gate-unlock">
+  <h1>REP LOG</h1>
+  <div class="err" id="unlockErr"></div>
+  <input type="password" id="unlockPass" placeholder="passphrase" autocomplete="current-password">
+  <button class="cta" id="unlockGo">Unlock</button>
+  <button class="erase" id="eraseLink">Erase everything</button>
+</div>
+
+<!-- ============ APP ============ -->
+<div id="app">
+
+  <!-- LOG -->
+  <div class="screen" id="scr-log">
+    <div id="banners"></div>
+    <div id="total" class="num">0<span class="lbl">TOTAL REPS</span></div>
+    <div id="usage"></div>
+    <div id="logbtns">
+      <button class="bigbtn" id="btnA">
+        <span class="letter">A</span>
+        <span class="sub">said no / held / asked</span>
+      </button>
+      <button class="bigbtn" id="btnV">
+        <span class="letter">V</span>
+        <span class="sub">shared a feeling / admitted</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- LADDER -->
+  <div class="screen" id="scr-ladder">
+    <div class="ladderhead">Start at Tier 1. Do not skip to Tier 4 because it feels more important. It is more important. That is exactly why you should not learn the mechanics there. Tap an item to start its rep. Finishing the rep checks the box.</div>
+    <div id="ladderRoot"></div>
+    <div class="sched">
+      <h3>SCHEDULE</h3>
+      <div>Weeks 1 and 2: Tier 1 only. One per day minimum. Do not touch Tier 4.</div>
+      <div>Weeks 3 and 4: Tier 2 enters. Keep one Tier 1 daily.</div>
+      <div>Week 5 onward: Tiers 3 through 5 enter the rotation.</div>
+      <div class="close">Skill rehearsed on strangers transfers to situations you never rehearsed. The stranger reps are what make the Tier 4 rep possible.</div>
+    </div>
+    <div class="failbox">The one thing that will wreck this: deciding you are not ready for Tier 1 and going to read more about it first. You are ready. Tier 1 item 7 takes eleven seconds. Go.</div>
+  </div>
+
+  <!-- TOOLKIT -->
+  <div class="screen" id="scr-tools">
+    <details><summary>SAYING NO</summary><div class="dbody"><ul>
+      <li>"Let me think about it and get back to you" is a complete answer.</li>
+      <li>One reason maximum. Zero is allowed.</li>
+      <li>Explaining more is not persuading more. It is negotiating against yourself.</li>
+      <li>Say it with the shake. The shake is not visible from outside.</li>
+      <li>Their anger is not evidence you are wrong. It is evidence they wanted a yes.</li>
+      <li>The silence after your no is their turn. Do not fill it.</li>
+    </ul></div></details>
+    <details><summary>BROKEN RECORD</summary><div class="dbody"><ul>
+      <li>Pick one sentence. Repeat it. Add nothing.</li>
+      <li>"That does not work for me."</li>
+      <li>"I am not able to do that."</li>
+      <li>"My answer is still no."</li>
+    </ul></div></details>
+    <details><summary>DEAR MAN</summary><div class="dbody">
+      <div class="dm" style="margin-bottom:12px">Describe. Express. Assert. Reinforce.</div>
+      <div class="dm"><span class="k">D</span> "You asked me to take the Henderson mapping by Friday."</div>
+      <div class="dm"><span class="k">E</span> "I am at capacity this week."</div>
+      <div class="dm"><span class="k">A</span> "I am not able to take it on."</div>
+      <div class="dm"><span class="k">R</span> "If it can wait until Tuesday, I can do it right."</div>
+    </div></details>
+    <details><summary>THE 24-HOUR REPAIR</summary><div class="dbody"><ul>
+      <li>"I said yes yesterday. I want to change that."</li>
+      <li>A reopened no is a full rep.</li>
+    </ul></div></details>
+    <details><summary>FACT vs FEELING</summary><div class="dbody">
+      <table class="ff">
+        <tr><td>"Work was busy"</td><td>"I felt useless at work today."</td></tr>
+        <tr><td>"The trip was fine"</td><td>"I felt close to you on that trip."</td></tr>
+        <tr><td>"Traffic was bad"</td><td>"I felt cornered all day."</td></tr>
+        <tr><td>"The meeting ran long"</td><td>"I felt dismissed in that meeting."</td></tr>
+        <tr><td>"I am tired"</td><td>"I felt defeated today."</td></tr>
+      </table>
+      <div class="ffnote">If the sentence works without the word "I felt," it is a fact. Facts do not build closeness.</div>
+    </div></details>
+    <div class="toolfoot">
+      <button id="backupBtn">Backup</button>
+      <button id="restoreBtn">Restore</button>
+    </div>
+    <div class="bnote">This backup is encrypted with your passphrase. Same passphrase, same rules. No reset.</div>
+    <input type="file" id="restoreFile" accept=".json,application/json" style="display:none">
+    <button id="aboutLink">about</button>
+  </div>
+
+  <!-- REVIEW -->
+  <div class="screen" id="scr-review"></div>
+
+  <!-- FEELINGS (standalone) -->
+  <div class="screen" id="scr-feel">
+    <div id="feelWordBig"></div>
+    <div id="feelStandalone"></div>
+  </div>
+
+  <!-- ABOUT -->
+  <div class="screen" id="scr-about">
+    <div class="lines">
+      <div>Your reps are encrypted on this phone with your passphrase.</div>
+      <div>Without it the data is unreadable. Including by you.</div>
+      <div>There is no reset and no recovery. That is what makes it real.</div>
+      <div>Clearing Safari history erases everything. Back up.</div>
+      <div>Backups are encrypted too. Same passphrase, same rules.</div>
+      <div>Nothing is sent anywhere. No server, no account, no exceptions.</div>
+    </div>
+    <button class="cta" id="aboutBack">Back</button>
+  </div>
+
+  <div id="tabbar">
+    <button data-tab="log" class="on">LOG<span class="bar"></span></button>
+    <button data-tab="ladder">LADDER<span class="bar"></span></button>
+    <button data-tab="tools">TOOLS<span class="bar"></span></button>
+    <button data-tab="review">REVIEW<span class="bar"></span></button>
+    <button data-tab="feel">FEEL<span class="bar"></span></button>
+  </div>
+</div>
+
+<!-- ============ LOG MODAL ============ -->
+<div id="modal"><div id="sheet"></div></div>
+
+<!-- ============ MINI MODALS ============ -->
+<div class="mini" id="eraseModal"><div class="minibox">
+  <h3>Erase everything</h3>
+  <p>This deletes all reps from this phone. It is not a passphrase reset. Type ERASE to confirm.</p>
+  <input type="text" id="eraseInput" autocomplete="off" autocapitalize="characters" placeholder="ERASE">
+  <div class="row">
+    <button class="stay" id="eraseNo">Keep</button>
+    <button class="go" id="eraseYes" disabled>Erase</button>
+  </div>
+</div></div>
+
+<div class="mini" id="restoreModal"><div class="minibox">
+  <h3>Restore backup</h3>
+  <p>Enter the passphrase this backup was made with.</p>
+  <div class="err" id="restoreErr"></div>
+  <input type="password" id="restorePass" placeholder="passphrase">
+  <div class="row">
+    <button class="stay" id="restoreNo">Cancel</button>
+    <button class="go tide" id="restoreYes">Restore</button>
+  </div>
+</div></div>
+
+<div id="shield"><div class="num">||||</div></div>
+<div id="toast"></div>
+
+<script>
+"use strict";
+/* ================= HARD RULES (enforced by design, do not relax) =================
+   No fetch/XHR anywhere. No external URLs. Passphrase and derived key live in
+   memory only. Wrong passphrase is detected by AES-GCM auth failure, never by
+   a stored hash. Salt/IV/ciphertext are the only things ever written to disk. */
+
+const $ = id => document.getElementById(id);
+const LS_KEY = "replog_v1";
+const IDB_NAME = "replog", IDB_STORE = "kv", IDB_KEY = "blob";
+const PBKDF2_ITERS = 600000;
+const LOCK_MS = 2 * 60 * 1000;
+const SIX_DAYS = 6 * 24 * 60 * 60 * 1000;
+
+let key = null;        // CryptoKey, session only
+let S = null;          // decrypted state
+let saltB64 = null;    // current salt (plaintext, not secret)
+let hiddenAt = 0;
+let toastIdx = 0;
+
+/* ---------------- base64 helpers ---------------- */
+const b64 = buf => btoa(String.fromCharCode(...new Uint8Array(buf)));
+const unb64 = str => Uint8Array.from(atob(str), c => c.charCodeAt(0));
+
+/* ---------------- crypto ---------------- */
+async function deriveKey(pass, saltBytes){
+  const mat = await crypto.subtle.importKey("raw", new TextEncoder().encode(pass), "PBKDF2", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey(
+    {name:"PBKDF2", salt:saltBytes, iterations:PBKDF2_ITERS, hash:"SHA-256"},
+    mat, {name:"AES-GCM", length:256}, false, ["encrypt","decrypt"]);
+}
+async function encryptState(){
+  const iv = crypto.getRandomValues(new Uint8Array(12)); // fresh IV per write, never reused
+  const pt = new TextEncoder().encode(JSON.stringify(S));
+  const ct = await crypto.subtle.encrypt({name:"AES-GCM", iv}, key, pt);
+  return {v:1, salt:saltB64, iv:b64(iv), ct:b64(ct)};
+}
+async function decryptBlob(blob, k){
+  const pt = await crypto.subtle.decrypt({name:"AES-GCM", iv:unb64(blob.iv)}, k, unb64(blob.ct));
+  return JSON.parse(new TextDecoder().decode(pt));
+}
+
+/* ---------------- storage: localStorage AND IndexedDB ---------------- */
+function idbOpen(){
+  return new Promise((res, rej) => {
+    const r = indexedDB.open(IDB_NAME, 1);
+    r.onupgradeneeded = () => r.result.createObjectStore(IDB_STORE);
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+async function idbPut(blob){
+  try{
+    const db = await idbOpen();
+    await new Promise((res, rej) => {
+      const tx = db.transaction(IDB_STORE, "readwrite");
+      tx.objectStore(IDB_STORE).put(blob, IDB_KEY);
+      tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+    });
+    db.close();
+  }catch(e){ /* localStorage copy still stands */ }
+}
+async function idbGet(){
+  try{
+    const db = await idbOpen();
+    const v = await new Promise((res, rej) => {
+      const tx = db.transaction(IDB_STORE, "readonly");
+      const rq = tx.objectStore(IDB_STORE).get(IDB_KEY);
+      rq.onsuccess = () => res(rq.result); rq.onerror = () => rej(rq.error);
+    });
+    db.close();
+    return v || null;
+  }catch(e){ return null; }
+}
+async function idbWipe(){
+  try{ await new Promise(res => { const r = indexedDB.deleteDatabase(IDB_NAME); r.onsuccess = r.onerror = r.onblocked = res; }); }catch(e){}
+}
+async function saveBlob(blob){
+  try{ localStorage.setItem(LS_KEY, JSON.stringify(blob)); }catch(e){}
+  await idbPut(blob);
+}
+async function loadBlob(){
+  try{
+    const raw = localStorage.getItem(LS_KEY);
+    if(raw) return JSON.parse(raw);
+  }catch(e){}
+  const fromIdb = await idbGet();
+  if(fromIdb){ try{ localStorage.setItem(LS_KEY, JSON.stringify(fromIdb)); }catch(e){} }
+  return fromIdb;
+}
+async function persist(){
+  const blob = await encryptState();
+  await saveBlob(blob);
+}
+
+/* ---------------- state ---------------- */
+function freshState(){
+  return { reps:[], pending:null, ladder:{} };
+}
+const completedReps = () => S.reps.length;
+
+/* ---------------- toast ---------------- */
+const CONFIRMS = ["Logged. Go do another.", "Counted.", "That is one more than yesterday."];
+let toastTimer = null;
+function toast(msg, ms){
+  const t = $("toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove("show"), ms || 2000);
+}
+
+/* ---------------- gates ---------------- */
+function show(el){ el.classList.add("active"); }
+function hide(el){ el.classList.remove("active"); }
+
+function toSetup(){
+  hide($("gate-unlock")); $("app").style.display = "none";
+  show($("gate-setup"));
+}
+function toUnlock(){
+  hide($("gate-setup")); $("app").style.display = "none";
+  $("unlockPass").value = ""; $("unlockErr").textContent = "";
+  show($("gate-unlock"));
+}
+function enterApp(){
+  hide($("gate-setup")); hide($("gate-unlock"));
+  $("app").style.display = "flex";
+  renderAll();
+  if(S.pending){ openStep2(); }
+}
+function lock(){
+  key = null; S = null;
+  closeModal();
+  toUnlock();
+}
+
+/* setup validation */
+function setupCheck(){
+  const p = $("setupPass").value, p2 = $("setupPass2").value, c = $("setupChk").checked;
+  $("setupGo").disabled = !(p.length >= 16 && p === p2 && c);
+  $("setupErr").textContent = (p && p.length < 16) ? "16 characters minimum." :
+    (p2 && p !== p2) ? "Passphrases do not match." : "";
+}
+["setupPass","setupPass2"].forEach(id => $(id).addEventListener("input", setupCheck));
+$("setupChk").addEventListener("change", setupCheck);
+
+$("setupGo").addEventListener("click", async () => {
+  $("setupGo").disabled = true;
+  $("setupErr").textContent = "Setting up...";
+  try{
+    const saltBytes = crypto.getRandomValues(new Uint8Array(16)); // generated once, stored plaintext
+    saltB64 = b64(saltBytes);
+    key = await deriveKey($("setupPass").value, saltBytes);
+    S = freshState();
+    await persist();
+    $("setupPass").value = ""; $("setupPass2").value = "";
+    try{ if(navigator.storage && navigator.storage.persist) await navigator.storage.persist(); }catch(e){}
+    enterApp();
+  }catch(e){
+    $("setupErr").textContent = "Setup failed. Try again.";
+    setupCheck();
+  }
+});
+
+/* unlock */
+async function tryUnlock(){
+  const pass = $("unlockPass").value;
+  if(!pass) return;
+  $("unlockGo").disabled = true;
+  $("unlockErr").textContent = "";
+  try{
+    const blob = await loadBlob();
+    if(!blob){ toSetup(); return; }
+    saltB64 = blob.salt;
+    const k = await deriveKey(pass, unb64(blob.salt));
+    S = await decryptBlob(blob, k);   // AES-GCM auth failure = wrong passphrase
+    key = k;
+    $("unlockPass").value = "";
+    enterApp();
+  }catch(e){
+    $("unlockErr").textContent = "Wrong passphrase.";
+  }finally{
+    $("unlockGo").disabled = false;
+  }
+}
+$("unlockGo").addEventListener("click", tryUnlock);
+$("unlockPass").addEventListener("keydown", e => { if(e.key === "Enter") tryUnlock(); });
+
+/* erase */
+$("eraseLink").addEventListener("click", () => {
+  $("eraseInput").value = ""; $("eraseYes").disabled = true;
+  $("eraseModal").classList.add("open");
+});
+$("eraseInput").addEventListener("input", () => {
+  $("eraseYes").disabled = $("eraseInput").value.trim() !== "ERASE";
+});
+$("eraseNo").addEventListener("click", () => $("eraseModal").classList.remove("open"));
+$("eraseYes").addEventListener("click", async () => {
+  try{ localStorage.removeItem(LS_KEY); }catch(e){}
+  await idbWipe();
+  key = null; S = null; saltB64 = null;
+  $("eraseModal").classList.remove("open");
+  toSetup();
+});
+
+/* ---------------- tabs ---------------- */
+const TABS = ["log","ladder","tools","review","feel"];
+function showTab(name){
+  TABS.forEach(t => {
+    $("scr-" + t).classList.toggle("active", t === name);
+  });
+  $("scr-about").classList.remove("active");
+  document.querySelectorAll("#tabbar button").forEach(b =>
+    b.classList.toggle("on", b.dataset.tab === name));
+  if(name === "review") renderReview();
+  if(name === "ladder") renderLadder();
+  if(name === "feel") renderFeelStandalone();
+  if(name === "log") renderLog();
+}
+document.querySelectorAll("#tabbar button").forEach(b =>
+  b.addEventListener("click", () => showTab(b.dataset.tab)));
+
+$("aboutLink").addEventListener("click", () => {
+  TABS.forEach(t => $("scr-" + t).classList.remove("active"));
+  $("scr-about").classList.add("active");
+});
+$("aboutBack").addEventListener("click", () => showTab("tools"));
+
+/* ---------------- LOG screen ---------------- */
+function renderLog(){
+  const n = completedReps();
+  $("total").firstChild.textContent = n;
+  renderBanners();
+  renderUsage();
+}
+function dayKey(ts){ const d = new Date(ts); return d.getFullYear() + "-" + d.getMonth() + "-" + d.getDate(); }
+function renderUsage(){
+  const u = $("usage");
+  u.innerHTML = "";
+  const days = new Set(S.reps.map(r => dayKey(r.ts)));
+  const strip = document.createElement("div");
+  strip.className = "dotstrip";
+  const now = new Date();
+  for(let i = 13; i >= 0; i--){
+    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+    const dot = document.createElement("span");
+    dot.className = "dot" + (days.has(dayKey(d.getTime())) ? " on" : "");
+    strip.appendChild(dot);
+  }
+  u.appendChild(strip);
+  const lr = document.createElement("div");
+  lr.className = "lastrep";
+  if(!S.reps.length){
+    lr.textContent = "NO REPS YET";
+  }else{
+    const last = Math.max(...S.reps.map(r => r.ts));
+    const ld = new Date(last);
+    const t0 = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const l0 = new Date(ld.getFullYear(), ld.getMonth(), ld.getDate()).getTime();
+    const dd = Math.round((t0 - l0) / 86400000);
+    lr.textContent = dd === 0 ? "LAST REP: TODAY" : dd === 1 ? "LAST REP: YESTERDAY" : "LAST REP: " + dd + " DAYS AGO";
+  }
+  u.appendChild(lr);
+}
+function renderBanners(){
+  const wrap = $("banners");
+  wrap.innerHTML = "";
+  if(S && S.reps.length > 0){
+    const last = Math.max(...S.reps.map(r => r.ts));
+    if(Date.now() - last > SIX_DAYS){
+      const d = document.createElement("div");
+      d.className = "banner";
+      const span = document.createElement("span");
+      span.textContent = "Back up your reps.";
+      const btn = document.createElement("button");
+      btn.textContent = "Export";
+      btn.addEventListener("click", exportBackup);
+      d.appendChild(span); d.appendChild(btn);
+      wrap.appendChild(d);
+    }
+  }
+}
+$("btnA").addEventListener("click", () => openStep1("A", null));
+$("btnV").addEventListener("click", () => openStep1("V", null));
+
+/* ---------------- logging modal ---------------- */
+let step2Actual = null, step2Feeling = null;
+
+function closeModal(){
+  $("modal").classList.remove("open");
+  $("sheet").innerHTML = "";
+}
+function scaleGrid(onPick, selected){
+  const g = document.createElement("div");
+  g.className = "scale";
+  for(let i = 1; i <= 10; i++){
+    const b = document.createElement("button");
+    b.textContent = i;
+    b.className = "num" + (selected === i ? " sel" : "");
+    b.addEventListener("click", () => onPick(i, b));
+    g.appendChild(b);
+  }
+  return g;
+}
+
+/* item is null (generic A/V tap) or {id, label} from the ladder */
+function openStep1(type, item){
+  step2Actual = null; step2Feeling = null;
+  const sheet = $("sheet");
+  sheet.innerHTML = "";
+  const h = document.createElement("h2");
+  h.textContent = "How bad will it go?";
+  sheet.appendChild(h);
+  if(item){
+    const sub = document.createElement("div");
+    sub.style.cssText = "font-size:14px;color:var(--dim);text-align:center;margin:-10px 0 14px";
+    sub.textContent = item.label;
+    sheet.appendChild(sub);
+  }
+  sheet.appendChild(scaleGrid(async (n) => {
+    S.pending = { id: Date.now() + "" + Math.floor(Math.random()*1000), type, predicted: n, ts: Date.now(),
+      itemId: item ? item.id : null, itemLabel: item ? item.label : null };
+    await persist();
+    openStep2();
+  }));
+  const c = document.createElement("button");
+  c.id = "modalCancel"; c.textContent = "cancel";
+  c.addEventListener("click", closeModal);
+  sheet.appendChild(c);
+  $("modal").classList.add("open");
+}
+
+function openStep2(){
+  const sheet = $("sheet");
+  sheet.innerHTML = "";
+  const h = document.createElement("h2");
+  h.textContent = "Come back after.";
+  sheet.appendChild(h);
+
+  if(S.pending && S.pending.itemLabel){
+    const sub = document.createElement("div");
+    sub.style.cssText = "font-size:14px;color:var(--dim);text-align:center;margin:-10px 0 14px";
+    sub.textContent = S.pending.itemLabel;
+    sheet.appendChild(sub);
+  }
+
+  const q = document.createElement("div");
+  q.style.cssText = "font-size:15px;color:var(--dim);text-align:center;margin-bottom:12px;font-weight:700";
+  q.textContent = "How bad WAS it?";
+  sheet.appendChild(q);
+
+  let outcomeBtns = [];
+  sheet.appendChild(scaleGrid((n, btn) => {
+    step2Actual = n;
+    btn.parentElement.querySelectorAll("button").forEach(b => b.classList.remove("sel"));
+    btn.classList.add("sel");
+    outcomeBtns.forEach(b => b.disabled = false);
+  }, step2Actual));
+
+  const out = document.createElement("div");
+  out.className = "outcomes";
+  [["HELD","held"],["PARTIAL",""],["FOLDED","folded"]].forEach(([label, cls]) => {
+    const b = document.createElement("button");
+    b.textContent = label;
+    if(cls) b.className = cls;
+    b.disabled = step2Actual === null;
+    b.addEventListener("click", () => finishRep(label));
+    out.appendChild(b);
+    outcomeBtns.push(b);
+  });
+  sheet.appendChild(out);
+
+  const f = document.createElement("button");
+  f.id = "feelLink";
+  f.textContent = step2Feeling ? ("feeling: " + step2Feeling) : "add a feeling (optional)";
+  f.addEventListener("click", () => openPicker(word => {
+    step2Feeling = word;
+    openStep2();
+  }, () => openStep2()));
+  sheet.appendChild(f);
+
+  $("modal").classList.add("open");
+}
+
+async function finishRep(outcome){
+  const p = S.pending;
+  if(!p) { closeModal(); return; }
+  S.reps.push({ id:p.id, type:p.type, predicted:p.predicted, actual:step2Actual, outcome,
+    feeling: step2Feeling || null, itemId: p.itemId || null, itemLabel: p.itemLabel || null, ts: Date.now() });
+  if(p.itemId){ S.ladder[p.itemId] = true; }  // finishing the rep is what checks the box
+  S.pending = null;
+  step2Actual = null; step2Feeling = null;
+  await persist();
+  closeModal();
+  renderLog();
+  if(outcome === "FOLDED"){
+    toast("Folded is still a rep. It counts.");
+  }else{
+    toast(CONFIRMS[toastIdx % CONFIRMS.length]);
+    toastIdx++;
+  }
+}
+
+/* ---------------- feeling picker ---------------- */
+const FEELINGS = {
+  ANGRY:["irritated","frustrated","resentful","dismissed","disrespected","provoked","bitter","furious","indignant","used","betrayed","contempt","angry at myself"],
+  SAD:["disappointed","lonely","hurt","discouraged","defeated","grieving","hollow","heavy","homesick","left out","regretful","low","unwanted"],
+  SCARED:["anxious","nervous","uneasy","dread","exposed","overwhelmed","threatened","out of control","worried","insecure","panicky","cornered","frozen","on edge","watched","awkward"],
+  ASHAMED:["embarrassed","inadequate","small","exposed","guilty","useless","like a fraud","worthless","humiliated","judged","weak","not enough","self-conscious","foolish","rejected","like a burden","invisible","silenced"],
+  HAPPY:["proud","relieved","grateful","calm","connected","hopeful","satisfied","energized","close to someone","seen","playful","content"],
+  NUMB:["flat","blank","checked out","disconnected","tired","bored","indifferent","going through the motions","far away","empty","foggy","dull"]
+};
+
+/* Renders picker into the modal sheet. onPick(word), onBack() */
+function openPicker(onPick, onBack){
+  const sheet = $("sheet");
+  const renderFamilies = () => {
+    sheet.innerHTML = "";
+    const hint = document.createElement("div");
+    hint.className = "pickhint";
+    hint.textContent = "Pick the closest one. Do not overthink it. Close enough is close enough.";
+    sheet.appendChild(hint);
+    const g = document.createElement("div");
+    g.className = "famgrid";
+    Object.keys(FEELINGS).forEach(fam => {
+      const b = document.createElement("button");
+      b.textContent = fam;
+      b.addEventListener("click", () => renderWords(fam));
+      g.appendChild(b);
+    });
+    sheet.appendChild(g);
+    const back = document.createElement("button");
+    back.id = "modalCancel"; back.textContent = "back";
+    back.addEventListener("click", onBack);
+    sheet.appendChild(back);
+  };
+  const renderWords = fam => {
+    sheet.innerHTML = "";
+    const g = document.createElement("div");
+    g.className = "wordgrid";
+    FEELINGS[fam].forEach(w => {
+      const b = document.createElement("button");
+      b.textContent = w;
+      b.addEventListener("click", () => onPick(w));
+      g.appendChild(b);
+    });
+    sheet.appendChild(g);
+    const back = document.createElement("button");
+    back.id = "modalCancel"; back.textContent = "back";
+    back.addEventListener("click", renderFamilies);
+    sheet.appendChild(back);
+  };
+  renderFamilies();
+  $("modal").classList.add("open");
+}
+
+/* standalone FEEL tab: same picker, nothing saves */
+function renderFeelStandalone(){
+  $("feelWordBig").style.display = "none";
+  const root = $("feelStandalone");
+  const renderFamilies = () => {
+    $("feelWordBig").style.display = "none";
+    root.innerHTML = "";
+    const hint = document.createElement("div");
+    hint.className = "pickhint";
+    hint.style.marginTop = "10px";
+    hint.textContent = "Pick the closest one. Do not overthink it. Close enough is close enough.";
+    root.appendChild(hint);
+    const g = document.createElement("div");
+    g.className = "famgrid";
+    Object.keys(FEELINGS).forEach(fam => {
+      const b = document.createElement("button");
+      b.textContent = fam;
+      b.addEventListener("click", () => renderWords(fam));
+      g.appendChild(b);
+    });
+    root.appendChild(g);
+  };
+  const renderWords = fam => {
+    root.innerHTML = "";
+    const g = document.createElement("div");
+    g.className = "wordgrid";
+    FEELINGS[fam].forEach(w => {
+      const b = document.createElement("button");
+      b.textContent = w;
+      b.addEventListener("click", () => {
+        root.innerHTML = "";
+        const big = $("feelWordBig");
+        big.textContent = w;
+        big.style.display = "block";
+        const done = document.createElement("div");
+        done.className = "pickhint";
+        done.textContent = "Now go say it to someone. Tap to start over.";
+        root.appendChild(done);
+        root.parentElement.onclick = () => { root.parentElement.onclick = null; renderFamilies(); };
+      });
+      g.appendChild(b);
+    });
+    root.appendChild(g);
+    const back = document.createElement("button");
+    back.id = "modalCancel"; back.textContent = "back";
+    back.addEventListener("click", renderFamilies);
+    root.appendChild(back);
+  };
+  renderFamilies();
+}
+
+/* ---------------- LADDER ---------------- */
+/* y: "A" (assert) or "V" (vulnerability), tags the rep type when launched from here */
+const LADDER = [
+  { name:"TIER 1: STRANGERS", gate:0, items:[
+    {t:"Send food back",y:"A"},
+    {t:"Ask for a discount, then say nothing",y:"A"},
+    {t:"Say \"no thanks\" to an upsell, out loud",y:"A"},
+    {t:"Ask a stranger for directions you do not need",y:"A"},
+    {t:"Ask a cashier how their day is actually going, stay for the answer",y:"A"},
+    {t:"Ask someone to move",y:"A"},
+    {t:"Decline a clipboard person with no excuse",y:"A"},
+    {t:"Return something without an excuse",y:"A"},
+    {t:"Start one conversation at a bar or counter. Two exchanges, then you may leave.",y:"A"},
+    {t:"Correct someone",y:"A"}
+  ], foot:"Boat ramps and bait shops are Tier 1 with a built-in script." },
+  { name:"TIER 2: WORK", gate:14, items:[
+    {t:"Say no to one work request",y:"A"},
+    {t:"Use \"let me think about it and get back to you\"",y:"A"},
+    {t:"Push back in a meeting. One reason.",y:"A"},
+    {t:"Ask for something you have been sitting on",y:"A"},
+    {t:"Say \"I do not know\" in front of colleagues",y:"A"},
+    {t:"State an opinion, unsoftened",y:"A"},
+    {t:"Decline an invite with no invented excuse",y:"A"},
+    {t:"★ Reopen a cave within 24 hours",y:"A"}
+  ], starNote:"This is the highest-value rep in Tier 2. It trains the recovery, not just the refusal." },
+  { name:"TIER 3: FAMILY", gate:22, items:[
+    {t:"Decline one family obligation, no fake excuse",y:"A"},
+    {t:"Tell your brother a worry. The worry, not the situation.",y:"V"},
+    {t:"Ask your brother for something",y:"A"},
+    {t:"Say the thing you have not been saying",y:"V"},
+    {t:"Say you are proud of something. No self-deprecating tag on the end.",y:"V"}
+  ]},
+  { name:"TIER 4: KRYSTAL", gate:30, head:"Feelings build closeness. Facts do not. Most of what you say to her is facts.", items:[
+    {t:"Say one feeling. The word \"felt\" has to be in the sentence.",y:"V"},
+    {t:"Name one thing you are scared of",y:"V"},
+    {t:"Say what YOU want",y:"A"},
+    {t:"★ Hold your position mid-disagreement. One sentence, repeated. Add nothing.",y:"A"},
+    {t:"Say \"I need\"",y:"A"},
+    {t:"Ask her a real question. Then shut up.",y:"V"},
+    {t:"Tell her she hurt you, the day it happens",y:"V"},
+    {t:"Admit a mistake before you are caught",y:"V"}
+  ], starNote:"This is THE rep. Everything else is practice for this one." },
+  { name:"TIER 5: HER DAUGHTER", gate:0, head:"Do not practice assertiveness on a kid. These are connection reps.", items:[
+    {t:"Ask a specific question. Not \"how was school.\" Try \"what was the worst part of today.\"",y:"V"},
+    {t:"Tell her one true thing about yourself. Something you were scared of at her age.",y:"V"},
+    {t:"Show her a fossil. Let her hold it. Take her collecting. Let her keep one.",y:"V"},
+    {t:"Hold a small boundary calmly. Do not retract it when she pushes.",y:"A"},
+    {t:"Repair out loud when you get it wrong",y:"V"},
+    {t:"Ask her opinion on something real, then use it",y:"V"}
+  ]}
+];
+
+function renderLadder(){
+  const root = $("ladderRoot");
+  root.innerHTML = "";
+  const n = completedReps();
+  LADDER.forEach((tier, ti) => {
+    const locked = n < tier.gate;
+    const div = document.createElement("div");
+    div.className = "tier" + (locked ? " locked" : "");
+    const h = document.createElement("h3");
+    h.textContent = tier.name;
+    div.appendChild(h);
+    if(locked){
+      const ln = document.createElement("div");
+      ln.className = "locknote";
+      ln.textContent = "Unlocks at " + tier.gate + " reps. You have " + n + ".";
+      div.appendChild(ln);
+    }else if(tier.head){
+      const th = document.createElement("div");
+      th.className = "thead";
+      th.textContent = tier.head;
+      div.appendChild(th);
+    }
+    tier.items.forEach((it, ii) => {
+      const id = "t" + ti + "i" + ii;
+      const starred = it.t.startsWith("★ ");
+      const label = starred ? it.t.slice(2) : it.t;
+      const btn = document.createElement("button");
+      btn.className = "item" + (S.ladder[id] ? " done" : "");
+      const box = document.createElement("span");
+      box.className = "box";
+      box.textContent = S.ladder[id] ? "✓" : "";
+      const span = document.createElement("span");
+      if(starred){
+        const st = document.createElement("span");
+        st.className = "star"; st.textContent = "★ ";
+        span.appendChild(st);
+      }
+      span.appendChild(document.createTextNode(label));
+      btn.appendChild(box); btn.appendChild(span);
+      if(!locked){
+        /* tap starts the rep; finishing it checks the box; done items can be repped again */
+        btn.addEventListener("click", () => openStep1(it.y, {id, label}));
+      }
+      div.appendChild(btn);
+      if(starred && tier.starNote){
+        const sn = document.createElement("div");
+        sn.className = "starnote";
+        sn.textContent = tier.starNote;
+        div.appendChild(sn);
+      }
+    });
+    if(tier.foot && !locked){
+      const f = document.createElement("div");
+      f.className = "tfoot";
+      f.textContent = tier.foot;
+      div.appendChild(f);
+    }
+    root.appendChild(div);
+  });
+}
+
+/* ---------------- REVIEW ---------------- */
+const MO = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+/* History: a plain log of every rep, newest first. No taps, no filters. */
+function renderHistory(root){
+  const wrap = document.createElement("div");
+  wrap.className = "usage";
+  const h = document.createElement("h3");
+  h.textContent = "HISTORY";
+  wrap.appendChild(h);
+  if(!S.reps.length){
+    const e = document.createElement("div");
+    e.className = "ufoot";
+    e.textContent = "No reps yet.";
+    wrap.appendChild(e);
+    root.appendChild(wrap);
+    return;
+  }
+  const sorted = S.reps.slice().sort((a, b) => b.ts - a.ts);
+  const shown = sorted.slice(0, 60);
+  shown.forEach(r => {
+    const row = document.createElement("div");
+    row.className = "hrow";
+    const d = new Date(r.ts);
+    const hd = document.createElement("span");
+    hd.className = "hd num";
+    hd.textContent = MO[d.getMonth()] + " " + d.getDate();
+    const ht = document.createElement("span");
+    ht.className = "ht " + r.type;
+    ht.textContent = r.type;
+    const hl = document.createElement("span");
+    hl.className = "hl";
+    hl.textContent = r.itemLabel || "quick log";
+    const ho = document.createElement("span");
+    ho.className = "ho " + r.outcome;
+    ho.textContent = r.outcome;
+    row.appendChild(hd); row.appendChild(ht); row.appendChild(hl); row.appendChild(ho);
+    wrap.appendChild(row);
+  });
+  if(sorted.length > 60){
+    const more = document.createElement("div");
+    more.className = "ufoot";
+    more.textContent = "+ " + (sorted.length - 60) + " earlier reps.";
+    wrap.appendChild(more);
+  }
+  root.appendChild(wrap);
+}
+
+function renderReview(){
+  const root = $("scr-review");
+  root.innerHTML = "";
+  renderHistory(root);
+  const n = completedReps();
+  if(n < 20){
+    const d = document.createElement("div");
+    d.id = "lockedBig";
+    d.innerHTML = "";
+    d.appendChild(document.createTextNode("LOCKED."));
+    d.appendChild(document.createElement("br"));
+    d.appendChild(document.createTextNode("20 reps to open."));
+    d.appendChild(document.createElement("br"));
+    const you = document.createElement("span");
+    you.appendChild(document.createTextNode("You have "));
+    const nn = document.createElement("span");
+    nn.className = "n num"; nn.textContent = n;
+    you.appendChild(nn);
+    you.appendChild(document.createTextNode("."));
+    d.appendChild(you);
+    root.appendChild(d);
+    return;
+  }
+
+  const tot = document.createElement("div");
+  tot.className = "rev-total num"; tot.textContent = n;
+  root.appendChild(tot);
+  const lbl = document.createElement("div");
+  lbl.className = "rev-lbl"; lbl.textContent = "TOTAL REPS";
+  root.appendChild(lbl);
+
+  const avg = arr => arr.reduce((a, b) => a + b, 0) / arr.length;
+  const pAvg = avg(S.reps.map(r => r.predicted));
+  const aAvg = avg(S.reps.map(r => r.actual));
+  const X = pAvg.toFixed(1), Y = aAvg.toFixed(1), Z = Math.abs(pAvg - aAvg).toFixed(1);
+
+  const l2 = document.createElement("div");
+  l2.className = "revline";
+  const inner2 = document.createElement("span");
+  inner2.innerHTML = "";
+  inner2.appendChild(document.createTextNode("Your average prediction was "));
+  const sx = document.createElement("span"); sx.className = "num"; sx.textContent = X;
+  inner2.appendChild(sx);
+  inner2.appendChild(document.createTextNode(". Reality was "));
+  const sy = document.createElement("span"); sy.className = "num"; sy.textContent = Y;
+  inner2.appendChild(sy);
+  inner2.appendChild(document.createTextNode(". You were wrong by "));
+  const sz = document.createElement("span"); sz.className = "num"; sz.textContent = Z;
+  inner2.appendChild(sz);
+  inner2.appendChild(document.createTextNode("."));
+  l2.appendChild(inner2);
+  if(pAvg - aAvg > 0){
+    const add = document.createElement("span");
+    add.className = "add";
+    add.textContent = "You expect it to go worse than it does. Every time.";
+    l2.appendChild(add);
+  }
+  root.appendChild(l2);
+
+  const folded = S.reps.filter(r => r.outcome === "FOLDED");
+  const fA = folded.filter(r => r.type === "A").length;
+  const fV = folded.filter(r => r.type === "V").length;
+
+  const mkBlur = text => {
+    const d = document.createElement("div");
+    d.className = "revline blurred";
+    const inner = document.createElement("span");
+    inner.className = "inner";
+    inner.textContent = text;
+    const veil = document.createElement("span");
+    veil.className = "veil";
+    veil.textContent = "TAP TO REVEAL";
+    d.appendChild(inner); d.appendChild(veil);
+    d.addEventListener("click", () => { d.classList.remove("blurred"); veil.remove(); }, {once:true});
+    return d;
+  };
+
+  root.appendChild(mkBlur("Folded: " + folded.length + ". " + fA + " were A, " + fV + " were V."));
+
+  const taggedFolds = folded.filter(r => r.itemLabel);
+  if(taggedFolds.length){
+    const ic = {};
+    taggedFolds.forEach(r => ic[r.itemLabel] = (ic[r.itemLabel] || 0) + 1);
+    const topItem = Object.keys(ic).sort((a, b) => ic[b] - ic[a])[0];
+    root.appendChild(mkBlur("Most folded on: " + topItem + "."));
+  }
+
+  const feltFolds = folded.filter(r => r.feeling);
+  let word = "none logged";
+  if(feltFolds.length){
+    const counts = {};
+    feltFolds.forEach(r => counts[r.feeling] = (counts[r.feeling] || 0) + 1);
+    word = Object.keys(counts).sort((a, b) => counts[b] - counts[a])[0];
+  }
+  root.appendChild(mkBlur("Most common feeling on FOLDED reps: " + word + "."));
+
+  const cl = document.createElement("div");
+  cl.className = "revclose";
+  cl.textContent = "Close this. Go get 20 more.";
+  root.appendChild(cl);
+}
+
+/* ---------------- backup / restore ---------------- */
+async function exportBackup(){
+  const blob = await loadBlob();
+  if(!blob){ toast("Nothing to back up."); return; }
+  const file = new Blob([JSON.stringify(blob)], {type:"application/json"});
+  const url = URL.createObjectURL(file);
+  const a = document.createElement("a");
+  const d = new Date();
+  const stamp = d.getFullYear() + String(d.getMonth()+1).padStart(2,"0") + String(d.getDate()).padStart(2,"0");
+  a.href = url;
+  a.download = "replog-backup-" + stamp + ".json";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+  toast("Backup exported.");
+}
+$("backupBtn").addEventListener("click", exportBackup);
+
+let pendingRestoreBlob = null;
+$("restoreBtn").addEventListener("click", () => $("restoreFile").click());
+$("restoreFile").addEventListener("change", async e => {
+  const f = e.target.files[0];
+  e.target.value = "";
+  if(!f) return;
+  try{
+    const parsed = JSON.parse(await f.text());
+    if(!parsed || !parsed.salt || !parsed.iv || !parsed.ct) throw new Error("bad");
+    pendingRestoreBlob = parsed;
+    $("restorePass").value = ""; $("restoreErr").textContent = "";
+    $("restoreModal").classList.add("open");
+  }catch(err){
+    toast("Not a Rep Log backup file.");
+  }
+});
+$("restoreNo").addEventListener("click", () => { pendingRestoreBlob = null; $("restoreModal").classList.remove("open"); });
+$("restoreYes").addEventListener("click", async () => {
+  if(!pendingRestoreBlob) return;
+  $("restoreYes").disabled = true;
+  $("restoreErr").textContent = "";
+  try{
+    const k = await deriveKey($("restorePass").value, unb64(pendingRestoreBlob.salt));
+    const restored = await decryptBlob(pendingRestoreBlob, k);
+    key = k;
+    saltB64 = pendingRestoreBlob.salt;
+    S = restored;
+    await persist();  // rewrites with a fresh IV
+    pendingRestoreBlob = null;
+    $("restorePass").value = "";
+    $("restoreModal").classList.remove("open");
+    renderAll();
+    toast("Restored.");
+  }catch(err){
+    $("restoreErr").textContent = "Wrong passphrase.";
+  }finally{
+    $("restoreYes").disabled = false;
+  }
+});
+
+/* ---------------- privacy shield + auto lock ---------------- */
+function shieldOn(){ $("shield").style.display = "flex"; }
+function shieldOff(){ $("shield").style.display = "none"; }
+document.addEventListener("visibilitychange", () => {
+  if(document.visibilityState === "hidden"){
+    hiddenAt = Date.now();
+    shieldOn();
+  }else{
+    if(key && hiddenAt && Date.now() - hiddenAt > LOCK_MS){
+      shieldOff();
+      lock();
+    }else{
+      shieldOff();
+    }
+    hiddenAt = 0;
+  }
+});
+window.addEventListener("blur", shieldOn);
+window.addEventListener("focus", () => { if(document.visibilityState !== "hidden") shieldOff(); });
+
+/* ---------------- manifest + service worker (best effort, zero network) ---------------- */
+(function installManifest(){
+  try{
+    const icon = document.querySelector('link[rel="apple-touch-icon"]').href;
+    const manifest = {
+      name:"Rep Log", short_name:"Rep Log", display:"standalone",
+      background_color:"#0B0D0F", theme_color:"#0B0D0F", start_url:".",
+      icons:[{src:icon, sizes:"180x180", type:"image/png"}]
+    };
+    const url = URL.createObjectURL(new Blob([JSON.stringify(manifest)], {type:"application/manifest+json"}));
+    const link = document.createElement("link");
+    link.rel = "manifest"; link.href = url;
+    document.head.appendChild(link);
+  }catch(e){}
+})();
+(function installSW(){
+  /* Some browsers refuse blob-URL service workers. The app makes zero network
+     requests after load, so offline function does not depend on this succeeding. */
+  if(!("serviceWorker" in navigator)) return;
+  try{
+    const swCode = 'self.addEventListener("install",e=>self.skipWaiting());' +
+      'self.addEventListener("activate",e=>self.clients.claim());' +
+      'self.addEventListener("fetch",e=>{});';
+    const url = URL.createObjectURL(new Blob([swCode], {type:"text/javascript"}));
+    navigator.serviceWorker.register(url).catch(() => {});
+  }catch(e){}
+})();
+
+/* ---------------- render + boot ---------------- */
+function renderAll(){
+  renderLog();
+  renderLadder();
+  showTab("log");
+}
+(async function boot(){
+  try{ if(navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); }catch(e){}
+  const blob = await loadBlob();
+  if(blob){ toUnlock(); } else { toSetup(); }
+})();
+</script>
+</body>
+</html>
